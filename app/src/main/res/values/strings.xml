@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">dropbox</string>
+
+<!--    <string-array name="lengths1">-->
+<!--        <item>kilometer</item>-->
+<!--&lt;!&ndash;        <item>meter</item>&ndash;&gt;-->
+<!--&lt;!&ndash;        <item>centimeter</item>&ndash;&gt;-->
+<!--&lt;!&ndash;        <item>millimeter</item>&ndash;&gt;-->
+<!--    </string-array>-->
+
+<!--    <string-array name="lengths2">-->
+<!--&lt;!&ndash;        <item>kilometer</item>&ndash;&gt;-->
+<!--        <item>meter</item>-->
+<!--        <item>centimeter</item>-->
+<!--&lt;!&ndash;        <item>millimeter</item>&ndash;&gt;-->
+<!--    </string-array>-->
+
+
+</resources>
