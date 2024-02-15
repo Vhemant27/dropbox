@@ -1,25 +1,381 @@
-// Select the modal and its interactive elements
-const modal = document.querySelector('.modal');
-const modalFocusableElements = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+import { isMobileDevice, debounce } from '../utilities/global';
 
-// Trap focus within the modal
-modal.addEventListener('keydown', function(event) {
-  if (event.key === 'Tab') {
-    // Get the currently focused element
-    const focusedElementIndex = Array.from(modalFocusableElements).indexOf(document.activeElement);
+// Selectors for the carousel
+const selectors = {
+    self: '.carousel'
+};
 
-    if (event.shiftKey) { // Shift+Tab
-      // If the first focusable element is focused, move focus to the last element
-      if (focusedElementIndex === 0) {
-        modalFocusableElements[modalFocusableElements.length - 1].focus();
-        event.preventDefault();
-      }
-    } else { // Tab
-      // If the last focusable element is focused, move focus to the first element
-      if (focusedElementIndex === modalFocusableElements.length - 1) {
-        modalFocusableElements[0].focus();
-        event.preventDefault();
-      }
-    }
-  }
+// Variables for touch events
+let touchStartX = 0;
+let isTouchStart = false;
+let touchMoveX = 0;
+
+// Helper functions for DOM manipulation
+const getElement = (selector, parent) => (parent || document).querySelector(selector);
+const getElements = (selector, parent) => (parent || document).querySelectorAll(selector);
+const createElement = (tagName, properties) => Object.assign(document.createElement(tagName), properties);
+
+// Helper function for modulo operation
+const modulo = (number, moduloBy) => (number % moduloBy + moduloBy) % moduloBy;
+
+// Main carousel function
+const carousel = (carouselElement) => {
+    /* eslint complexity: off */
+    const animationDuration = +getComputedStyle(carouselElement).getPropertyValue("--animation") || 500;
+    const visibleSlides = +getComputedStyle(carouselElement).getPropertyValue("--visible-slides") || 1;
+    const moveDistance = 100 / visibleSlides;
+    const carouselSlider = getElement(".carousel__content", carouselElement);
+    const slideElements = getElements(".carousel__item", carouselSlider);
+    const dotElements = [];
+
+    // Parse configuration from dataset
+    const encodedConfig = carouselSlider.dataset.carouselConfig || '{}';
+    const carouselConfig = JSON.parse(
+        encodedConfig.replace(/&quot;/g, '"'),
+        (key, value) => {
+            if (typeof value === 'string') {
+                if (value === 'true' || value === 'false') {
+                    return value === 'true';
+                }
+
+                if (!Number.isNaN(value)) {
+                    return Number(value);
+                }
+            }
+
+            return value;
+        }
+    );
+
+    // Configuration options
+    const shouldLoop = carouselConfig.carouselLoop === true;
+    const autoplay = carouselConfig.autoplay === true;
+    const autopauseDisabled = carouselConfig.autopauseDisabled === true;
+    const autoplayDelay = carouselConfig.delay || 3000;
+    let autoplayInterval;
+
+    // Find initially active slide index
+    const findInitiallyActiveIndex = () => {
+        const initiallyActiveSlide = getElement('.carousel__item--active', carouselSlider);
+        return initiallyActiveSlide ? Array.from(slideElements).indexOf(initiallyActiveSlide) : 0;
+    };
+
+    // Total number of slides
+    const totalSlides = slideElements.length;
+    let currentIndex = findInitiallyActiveIndex();
+    if (totalSlides < visibleSlides) return undefined;
+
+    // Create dots for navigation
+    const dotsContainer = getElement(".carousel__navigation", carouselElement);
+
+// Function to animate the slider
+    const animateSlider = (duration = animationDuration) => {
+        const currentIndexMod = modulo(currentIndex, totalSlides);
+                carouselSlider.style.transitionDuration = `${duration}ms`;
+
+        // Handle resizing of the window
+        const handleResize = () => {
+            let mobileTranslateX;
+            let carouselTranslateAdjustment  = 0;
+            if (carouselElement.classList.contains('carousel--story')) {
+                carouselTranslateAdjustment = 29;
+            }
+            if (isMobileDevice()) {
+                mobileTranslateX = visibleSlides === 1.2 ? 1.4 : 1;
+            } else {
+                mobileTranslateX = 1;
+            }
+            carouselSlider.style.transform = `translateX(calc(${
+                (-currentIndex - visibleSlides * mobileTranslateX) * moveDistance - carouselTranslateAdjustment
+            }%))`;
+
+            // logic for carousel--modal to handle dots
+            if (carouselElement.classList.contains('carousel--modal')) {
+                const teaserImageHeight = getElement('.cmp-teaser__image', carouselElement)?.offsetHeight || 0;
+                const topValue = teaserImageHeight + 26;
+                dotsContainer.style.top = `${topValue}px`;
+            }
+        };
+
+        // Add a debounced event listener for window resize
+        window.addEventListener('resize', debounce(handleResize, 300));
+        handleResize();
+
+        // Update active elements (slides and dots)
+        slideElements.forEach((slide, i) => slide.classList.toggle("carousel__item--active", currentIndexMod === i));
+        dotElements.forEach((dot, i) => dot.classList.toggle("carousel__item--active", currentIndexMod === i));
+        return undefined;
+            };
+
+    // Function to move to the next slide
+    const moveToNext = () => {
+        if (!shouldLoop && currentIndex >= totalSlides - visibleSlides) return;
+        currentIndex += 1;
+        animateSlider();
+    };
+
+    // Function to move to the previous slide
+    const moveToPrev = () => {
+        if (!shouldLoop && currentIndex <= 0) return;
+        currentIndex -= 1;
+        animateSlider();
+    };
+
+    // Function to go to a specific slide index
+    const goToIndex = (index) => {
+        currentIndex = index;
+        animateSlider();
+    };
+
+    // Create previous and next buttons
+    const prevButton = createElement("button", {
+        type: "button",
+        className: "carousel__navigation--previous",
+        onclick: moveToPrev,
+    });
+
+    const nextButton = createElement("button", {
+        type: "button",
+        className: "carousel__navigation--next",
+        onclick: moveToNext,
+    });
+    
+    prevButton.setAttribute('aria-labelledby', 'previous-slide');
+    nextButton.setAttribute('aria-labelledby', 'next-slide');
+
+    // Append buttons to the carousel element
+    carouselElement.append(prevButton, nextButton);
+
+    // Event listener for transition end to handle looping
+    carouselSlider.addEventListener("transitionend", () => {
+        if (currentIndex <= -1) currentIndex = totalSlides - 1;
+        if (currentIndex >= totalSlides) currentIndex = 0;
+        animateSlider(0);
+    });
+
+    // Prevent double-click on the slider
+    carouselSlider.addEventListener("dblclick", (e) => {
+        e.preventDefault();
+    });
+
+    // Touch event listeners
+    carouselSlider.addEventListener("touchstart", (e) => {
+        touchStartX = e.touches[0].clientX;
+        isTouchStart = true;
+    });
+
+    carouselSlider.addEventListener("touchmove", (e) => {
+        if (isTouchStart) {
+            touchMoveX = e.touches[0].clientX;
+        }
+    });
+
+    carouselSlider.addEventListener("touchend", () => {
+        if (isTouchStart) {
+            isTouchStart = false;
+            const touchDiff = touchMoveX - touchStartX;
+
+            if (Math.abs(touchDiff) > 50) {
+                if (touchDiff > 0) {
+                    moveToPrev();
+                } else {
+                    moveToNext();
+                }
+            }
+        }
+    });
+
+    // Variables for mouse swipe
+    let startCoordX = 0;
+
+    const handleSwipeStart = (e) => {
+        startCoordX = e.clientX || e.touches[0].clientX;
+    };
+
+    const handleSwipeMove = (e) => {
+        if (!startCoordX) return;
+        const currentCoordX = e.clientX || e.touches[0].clientX;
+        const touchDiff = currentCoordX - startCoordX;
+
+        if (Math.abs(touchDiff) > 50) {
+            if (touchDiff > 0) {
+                moveToPrev();
+            } else {
+                moveToNext();
+            }
+            startCoordX = 0;
+        }
+    };
+
+    const handleSwipeEnd = () => {
+        startCoordX = 0;
+    };
+
+    // Event listeners for mouse swipe
+    carouselSlider.addEventListener("mousedown", handleSwipeStart);
+    carouselSlider.addEventListener("mousemove", handleSwipeMove);
+    carouselSlider.addEventListener("mouseup", handleSwipeEnd);
+
+    // Function to start autoplay
+    const startAutoplay = () => {
+        if (autoplay) {
+            autoplayInterval = setInterval(() => {
+                moveToNext();
+            }, autoplayDelay);
+        }
+    };
+
+    // Function to stop autoplay
+    const stopAutoplay = () => {
+        if (autoplayInterval) {
+            clearInterval(autoplayInterval);
+        }
+    };
+
+    // Event listener for mouse leave to start autoplay
+    const handleMouseLeave = () => {
+        if (!autopauseDisabled) {
+            startAutoplay();
+            carouselSlider.removeEventListener("mouseleave", handleMouseLeave);
+        }
+    };
+
+    // Event listener for mouse enter to stop autoplay
+    const handleMouseEnter = () => {
+        if (!autopauseDisabled) {
+            stopAutoplay();
+            carouselSlider.addEventListener("mouseleave", handleMouseLeave);
+        }
+    };
+
+    // Event listener for mouse enter to stop autoplay
+    carouselSlider.addEventListener("mouseenter", handleMouseEnter);
+
+    // Clone slides for looping
+for (let i = 0; i < visibleSlides; i += 1) {
+    const clonedNextSlide = slideElements[i].cloneNode(true);
+    clonedNextSlide.classList.remove("carousel__item--active");
+    carouselSlider.append(clonedNextSlide);
+
+    const clonedPrevSlide = slideElements[totalSlides - 1 - i].cloneNode(true);
+    clonedPrevSlide.classList.remove("carousel__item--active");
+    carouselSlider.prepend(clonedPrevSlide);
+}
+console.log(6);
+const screenswidth=window.innerWidth;
+const allSlideElements = carouselSlider.querySelectorAll(".carousel__item");
+allSlideElements.forEach((slide, i) => {
+    slide.addEventListener("click", () => {
+        const clickedIndex = i - 2; // Adjusting for the cloned slides at the beginning
+
+        if (clickedIndex > currentIndex) {
+            moveToNext();
+        } else if (clickedIndex < currentIndex) {
+            moveToPrev();
+        }
+    });
+    console.log(`slide.offsetwidth=${slide.offsetWidth}`);
+    console.log(`screenswidth=${screenswidth}`);
+ 
 });
+
+    // Initial animation
+    animateSlider(0);
+
+    for (let i = 0; i < totalSlides; i += 1) {
+        const dotElement = createElement("div", {
+            className: "carousel__navigation-item",
+            onclick: () => goToIndex(i),
+        });
+        dotsContainer.appendChild(dotElement);
+        dotElements.push(dotElement);
+    }
+
+    // Update dots on transition end
+    const updateDots = () => {
+        dotElements.forEach((dot, i) => dot.classList.toggle("carousel__item--active", currentIndex === i));
+    };
+
+    // Event listener for transition end to update dots and handle looping
+    carouselSlider.addEventListener("transitionend", () => {
+        updateDots();
+        if (currentIndex <= -1) currentIndex = totalSlides - 1;
+        if (currentIndex >= totalSlides) currentIndex = 0;
+        animateSlider(0);
+    });
+
+    // Update dots on initialization
+    updateDots();
+
+    // Start autoplay
+    startAutoplay();
+
+    // for Modal Carousel Index mapping
+    return {
+        animateSlider,
+        setCurrentIndex: (index) => {
+            currentIndex = index;
+        },
+    };
+};
+
+// Function to retrieve carouselSlider, encodedConfig, and carouselConfig
+function getCarouselConfig(carouselElement) {
+    const carouselSlider = getElement(".carousel__content", carouselElement);
+    const encodedConfig = carouselSlider.dataset.carouselConfig || '{}';
+    const carouselConfig = JSON.parse(encodedConfig.replace(/&quot;/g, '"'));
+    return { carouselSlider, encodedConfig, carouselConfig };
+}
+
+// Function to initialize carousels on the page
+function onCarouselInit() {
+    const carouselsOnPage = document.querySelectorAll(selectors.self);
+    if (carouselsOnPage) {
+        let baseCarouselItems;
+        carouselsOnPage.forEach(carouselElement => {
+            const { carouselSlider, carouselConfig } = getCarouselConfig(carouselElement);
+
+            // Check if there's only one slide
+            if (carouselConfig.slideCount > 1) {
+                const { animateSlider, setCurrentIndex } = carousel(carouselElement);
+
+                // Getting carousel-items from the carousel that has modal
+                const baseCarousel = carouselElement.querySelector('.modalCarousel');
+                if (baseCarousel) baseCarouselItems = carouselSlider?.querySelectorAll('.carousel__item');
+
+                // Confirming if the carousel is a modal carousel or not
+                const carouselInModal = carouselElement.parentNode.classList.contains('modal__body');
+
+                // When modal carousel is available then click events will added for base carousel-items.
+                if (carouselInModal) {
+                    baseCarouselItems.forEach(item => {
+                        item.addEventListener('click', function () {
+                            const modalTarget = this.getAttribute('data-modal-target');
+                            const modal = document.getElementById(modalTarget);
+                            const modalCarousel = modal?.querySelector('.carousel');
+
+                            // Get the index of the clicked item in the main carousel
+                            const mainCarouselIndex = Array.from(baseCarouselItems).indexOf(this);
+                            setCurrentIndex(mainCarouselIndex-1);
+                            animateSlider();
+                        });
+                    });
+                }
+            } else {
+                const prevButton = getElement(".carousel__navigation--previous", carouselElement);
+                const nextButton = getElement(".carousel__navigation--next", carouselElement);
+                if (prevButton && nextButton) {
+                    prevButton.style.display = "none";
+                    nextButton.style.display = "none";
+                }
+            }
+        });
+    }
+}
+
+// Check document ready state and initialize carousels
+if (document.readyState !== "loading") {
+    onCarouselInit();
+} else {
+    document.addEventListener("DOMContentLoaded", onCarouselInit);
+}
