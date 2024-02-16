@@ -55,9 +55,19 @@ const carousel = (carouselElement) => {
     let autoplayInterval;
 
     // Find initially active slide index
+    // const findInitiallyActiveIndex = () => {
+    //     const initiallyActiveSlide = getElement('.carousel__item--active', carouselSlider);
+    //     return initiallyActiveSlide ? Array.from(slideElements).indexOf(initiallyActiveSlide) : 0;
+    // };
     const findInitiallyActiveIndex = () => {
         const initiallyActiveSlide = getElement('.carousel__item--active', carouselSlider);
-        return initiallyActiveSlide ? Array.from(slideElements).indexOf(initiallyActiveSlide) : 0;
+        let initiallyActiveSlideIndex = Array.from(slideElements).indexOf(initiallyActiveSlide)
+        if(initiallyActiveSlideIndex<visibleSlides){
+            initiallyActiveSlideIndex+=totalSlides-2*visibleSlides;
+        }else if(initiallyActiveSlideIndex>=totalSlides-visibleSlides){
+            initiallyActiveSlideIndex-=totalSlides-2*visibleSlides;
+        }
+        return initiallyActiveSlideIndex ;
     };
 
     // Total number of slides
@@ -70,8 +80,13 @@ const carousel = (carouselElement) => {
 
 // Function to animate the slider
     const animateSlider = (duration = animationDuration) => {
+        if(currentIndex>=totalSlides){
+            currentIndex-=totalSlides;
+        }else if(currentIndex<0){
+            currentIndex+=totalSlides;
+        }
         const currentIndexMod = modulo(currentIndex, totalSlides);
-                carouselSlider.style.transitionDuration = `${duration}ms`;
+                carouselSlider.style.transitionDuration = `${duration}s`;
 
         // Handle resizing of the window
         const handleResize = () => {
@@ -86,7 +101,7 @@ const carousel = (carouselElement) => {
                 mobileTranslateX = 1;
             }
             carouselSlider.style.transform = `translateX(calc(${
-                (-currentIndex - visibleSlides * mobileTranslateX) * moveDistance - carouselTranslateAdjustment
+                (-1 - visibleSlides * mobileTranslateX) * moveDistance - carouselTranslateAdjustment
             }%))`;
 
             // logic for carousel--modal to handle dots
@@ -261,8 +276,7 @@ for (let i = 0; i < visibleSlides; i += 1) {
     clonedPrevSlide.classList.remove("carousel__item--active");
     carouselSlider.prepend(clonedPrevSlide);
 }
-console.log(6);
-const screenswidth=window.innerWidth;
+
 const allSlideElements = carouselSlider.querySelectorAll(".carousel__item");
 allSlideElements.forEach((slide, i) => {
     slide.addEventListener("click", () => {
@@ -274,9 +288,6 @@ allSlideElements.forEach((slide, i) => {
             moveToPrev();
         }
     });
-    console.log(`slide.offsetwidth=${slide.offsetWidth}`);
-    console.log(`screenswidth=${screenswidth}`);
- 
 });
 
     // Initial animation
