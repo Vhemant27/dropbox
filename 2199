@@ -26,10 +26,16 @@ export default class C100Cards extends AbstractTransitionComponent {
 
   private payload: O09ModalCarouselContentProps;
 
+  private cards: O35ArticleCard[];
+
   constructor(el: HTMLElement) {
     super(el);
 
     this.transitionController = new C100CardsTransitionController(this);
+
+    this.cards = this.getComponents<O35ArticleCard>(O35ArticleCard.displayName).filter(
+      (component) => !component.isLink() && component.hasDescription()
+    );
 
     this.payload = {
       activeItemIndex: 0,
@@ -110,7 +116,7 @@ export default class C100Cards extends AbstractTransitionComponent {
   }
 
   private getCardIndex(target: HTMLElement): number {
-    return this.cards.findIndex((component) => component.element === target);
+    return this.cards.findIndex((component: O35ArticleCard) => component.element === target);
   }
 
   private animateElement(element: HTMLElement, animationOptions: gsap.TweenConfig): void {
