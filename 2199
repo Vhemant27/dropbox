@@ -33,7 +33,6 @@ export default class O35ArticleCard extends AbstractComponent {
     }
 
     if (this.isLink()) {
-      // this.addActionStyles();
       this.addDisposableEventListener(this.element, 'click', this.onCardClick.bind(this));
     }
 
@@ -45,31 +44,34 @@ export default class O35ArticleCard extends AbstractComponent {
     ) {
       this.addOnlyLinkStyles();
     }
-    const isEnableImageAnimation = this.articleCardParentDataset?.optimizeForLcp === undefined;
-    var disableAnimationValue;
-    const cardContainers = document.querySelectorAll('.cmp-c100-cards .b-cards__list');
-    cardContainers.forEach(cardContainer => {
-    if (cardContainer instanceof HTMLElement) {
-    disableAnimationValue = cardContainer?.dataset?.disableAnimation;
+
+    this.addEventListeners();
   }
-});
 
-  let isAnimationActive = disableAnimationValue === 'false';
+  private addEventListeners(): void {
+    const cardContainers = document.querySelectorAll('.cmp-c100-cards .b-cards__list');
 
-    if(isAnimationActive===true){
-      this.articleCardImageWrapper &&
-        this.addDisposableEventListener(
-          this.articleCardImageWrapper,
-          'mouseenter',
-          this.onMouseEnter.bind(this),
-        );
-      this.articleCardImageWrapper &&
-        this.addDisposableEventListener(
-          this.articleCardImageWrapper,
-          'mouseleave',
-          this.onMouseLeave.bind(this),
-        );
-    }
+    cardContainers.forEach(cardContainer => {
+      if (cardContainer instanceof HTMLElement && cardContainer.contains(this.element)) {
+        const disableAnimationValue = cardContainer.dataset.disableAnimation;
+        const isAnimationActive = disableAnimationValue === 'false';
+
+        if (isAnimationActive) {
+          this.articleCardImageWrapper &&
+            this.addDisposableEventListener(
+              this.articleCardImageWrapper,
+              'mouseenter',
+              this.onMouseEnter.bind(this),
+            );
+          this.articleCardImageWrapper &&
+            this.addDisposableEventListener(
+              this.articleCardImageWrapper,
+              'mouseleave',
+              this.onMouseLeave.bind(this),
+            );
+        }
+      }
+    });
   }
 
   private async onCardClick(event: MouseEvent): Promise<void> {
@@ -81,12 +83,10 @@ export default class O35ArticleCard extends AbstractComponent {
       contentCategoryTitle = '',
     } = this.element.dataset;
 
-    // Check if the click originated from the "Learn more" link
     const isLearnMoreClick =
       event.target === this.link || this.link?.contains(event.target as Node);
 
     if (isLearnMoreClick) {
-      // Perform the action and dispatch the event only for "Learn more" click
       this.dispatcher.dispatchEvent(
         new O35ArticleCardEvent(O35ArticleCardEvent.types.CLICK, {
           content_index: contentIndex,
