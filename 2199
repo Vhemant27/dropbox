@@ -1,139 +1,154 @@
-import AbstractTransitionComponent from 'app/component/AbstractTransitionComponent';
-import C100CardsTransitionController from './C100CardsTransitionController';
-import { setAsInitialised } from 'app/util/setAsInitialised';
-import gsap, { TweenMax } from 'gsap';
+import AbstractComponent from 'app/component/AbstractComponent';
+import { TweenMax } from 'gsap';
+import { StateClassNames } from 'app/data/enum/StateClassNames';
+import { navigateTo } from 'muban-page-transition-controller';
 import eases from '../../../animation/eases';
-import O35ArticleCard from '../../organism/o35-article-card/O35ArticleCard.lazy';
-import { O09ModalCarouselContentProps } from '../../organism/o09-modal-carousel-content/O09ModalCarouselContent.types';
-import App from '../../layout/app/App';
-import { MODAL } from '../../../util/overlayActionTypes';
 import { getAppComponent } from '../../../util/getElementComponent';
-import { C100CardsProps } from './C100Cards.types';
+import { O35ArticleCardEvent } from './O35ArticleCard.utils';
 
-const lazyO09Template = () =>
-  import(
-    '../../organism/o09-modal-carousel-content/o09-modal-carousel-content.hbs?include'
-  ) as LoadTemplateImport<O09ModalCarouselContentProps>;
+import './o35-article-card.scss';
 
-import './c100-cards.scss';
+export default class O35ArticleCard extends AbstractComponent {
+  public static readonly displayName: string = 'o35-article-card';
+  public static readonly HAS_ACTION = '-hasAction';
+  public static readonly HAS_ONLY_LINK = '-hasOnlyLink';
 
-export default class C100Cards extends AbstractTransitionComponent {
-  public static readonly displayName: string = 'c100-cards';
-
-  public readonly transitionController: C100CardsTransitionController;
-
-  private app: App | null = null;
-
-  private payload: O09ModalCarouselContentProps;
-
-  private cards: O35ArticleCard[];
+  private readonly articleCardImageWrapper = this.getElement('[data-card-image]');
+  private readonly articleCardParentDataset =
+    this.articleCardImageWrapper?.parentElement?.parentElement?.parentElement?.parentElement
+      ?.parentElement?.dataset;
+  private readonly cardImage = this.element.getElementsByTagName('img')[0];
+  private readonly cardPublishedDate =
+    this.getElement<HTMLParagraphElement>('[data-published-date]');
+  private readonly cardTitle = this.getElement('[data-card-heading]');
+  private readonly cardDescription = this.getElement<HTMLParagraphElement>('[data-card-copy]');
+  private readonly link = this.getElement<HTMLAnchorElement>('[data-component="m06-link"]');
+  private readonly actionIndicator = this.getElement<HTMLDivElement>('[data-action-indicator]');
 
   constructor(el: HTMLElement) {
     super(el);
 
-    this.transitionController = new C100CardsTransitionController(this);
+    if (!this.isLink() && !this.hasDescription()) {
+      this.hideActionIndicator();
+    }
 
-    this.cards = this.getComponents<O35ArticleCard>(O35ArticleCard.displayName).filter(
-      (component) => !component.isLink() && component.hasDescription()
-    );
+    if (this.isLink()) {
+      // this.addActionStyles();
+      this.addDisposableEventListener(this.element, 'click', this.onCardClick.bind(this));
+    }
 
-    this.payload = {
-      activeItemIndex: 0,
-      variant: 'fullBleedCarousel',
-      highlightHotspots: true,
-      items: this.getCardsData().filter(
-        ({ outerContent: { link, copy } }) => !link.href && copy && copy.length > 0
-      ),
-    };
-
-    this.addEventListeners();
+    if (
+      this.isLink() &&
+      !this.hasDescription() &&
+      !this.hasPublishDate() &&
+      !this.hasHighlighted()
+    ) {
+      this.addOnlyLinkStyles();
+    }
+    const isEnableImageAnimation = this.articleCardParentDataset?.optimizeForLcp === undefined;
+    var disableAnimationValue;
+    const cardContainers = document.querySelectorAll('.cmp-c100-cards .b-cards__list');
+    cardContainers.forEach(cardContainer => {
+    if (cardContainer instanceof HTMLElement) {
+    disableAnimationValue = cardContainer?.dataset?.disableAnimation;
   }
+});
 
-  private getCardsData(): C100CardsProps['cards'] {
-    try {
-      return JSON.parse(<string>this.element.dataset.cards);
-    } catch (error) {
-      throw new Error("Couldn't find the cards data!");
+  let isAnimationActive = disableAnimationValue === 'false';
+
+    if(isAnimationActive===true){
+      this.articleCardImageWrapper &&
+        this.addDisposableEventListener(
+          this.articleCardImageWrapper,
+          'mouseenter',
+          this.onMouseEnter.bind(this),
+        );
+      this.articleCardImageWrapper &&
+        this.addDisposableEventListener(
+          this.articleCardImageWrapper,
+          'mouseleave',
+          this.onMouseLeave.bind(this),
+        );
     }
   }
 
-  public async adopted() {
-    setAsInitialised(this.element);
-    this.app = await getAppComponent();
-  }
+  private async onCardClick(event: MouseEvent): Promise<void> {
+    const { pageTransitionController, isLinkInternal } = await getAppComponent();
+    const href = this.link && this.link.href;
+    const {
+      contentIndex = '',
+      contentCategoryTotal = '',
+      contentCategoryTitle = '',
+    } = this.element.dataset;
 
-  private addEventListeners(): void {
-    const cardContainers = document.querySelectorAll('.cmp-c100-cards .b-cards__list');
+    // Check if the click originated from the "Learn more" link
+    const isLearnMoreClick =
+      event.target === this.link || this.link?.contains(event.target as Node);
 
-    cardContainers.forEach(cardContainer => {
-      if (cardContainer instanceof HTMLElement) {
-        const enhancedImageValue = cardContainer.dataset.enhancedImage;
-        const disableAnimationValue = cardContainer.dataset.disableAnimation;
-        const isImageEnhanced = enhancedImageValue === 'true';
-        const isAnimationActive = disableAnimationValue === 'false';
+    if (isLearnMoreClick) {
+      // Perform the action and dispatch the event only for "Learn more" click
+      this.dispatcher.dispatchEvent(
+        new O35ArticleCardEvent(O35ArticleCardEvent.types.CLICK, {
+          content_index: contentIndex,
+          content_type:
+            contentCategoryTitle?.trim().toLowerCase() === 'newsroom' ? 'article' : 'page',
+          content_category: contentCategoryTitle,
+          content_category_total_count: contentCategoryTotal,
+          content_title: this.cardTitle?.textContent || '',
+          content_title_in_english: this.cardTitle?.dataset.titleInEnglish || '',
+          link_url: href || '',
+        }),
+      );
 
-        const cards = this.getComponents<O35ArticleCard>(O35ArticleCard.displayName, cardContainer).filter(
-          (component) => !component.isLink() && component.hasDescription()
-        );
-
-        cards.forEach((card) => {
-          const imageWrapper = card.getElement<HTMLElement>('.o-articleCard__image');
-          const content = card.getElement<HTMLElement>('.o-articleCard__content');
-
-          if (isImageEnhanced) {
-            imageWrapper?.classList.add('o-articleCard__image--enhanced');
-          }
-
-          this.addDisposableEventListener(card.element, 'click', () => this.openModal(card.element));
-          this.addDisposableEventListener(card.element, 'mouseenter', () =>
-            this.onCardHover(card.element, imageWrapper, content, isAnimationActive)
-          );
-          this.addDisposableEventListener(card.element, 'mouseleave', () => {
-            this.onCardHover(card.element, imageWrapper, content);
-          });
-        });
+      if (pageTransitionController && href && isLinkInternal(href)) {
+        await navigateTo(pageTransitionController, href);
+      } else if (href) {
+        window.location.href = href;
       }
-    });
+    }
   }
 
-  private async openModal(element: HTMLElement): Promise<void> {
-    const [o09Template, overlay] = await Promise.all([lazyO09Template(), this.app?.overlay]);
-
-    const fullBleedCarouselVariant = 'fullBleedCarousel';
-
-    this.payload.activeItemIndex = this.getCardIndex(element);
-
-    await overlay?.dispatchAction({
-      type: MODAL.STANDARD_DYNAMIC,
-      payload: {
-        template: o09Template.default,
-        data: this.payload,
-        options: {
-          classnames: [`-${fullBleedCarouselVariant}`],
-        },
-      },
-    });
+  private onMouseEnter(): void {
+    this.cardImage &&
+      TweenMax.to(this.cardImage, 0.7, {
+        scale: 1.1,
+        ease: eases.VinnieInOut,
+      });
   }
 
-  private getCardIndex(target: HTMLElement): number {
-    return this.cards.findIndex((component: O35ArticleCard) => component.element === target);
+  private onMouseLeave(): void {
+    this.cardImage &&
+      TweenMax.to(this.cardImage, 0.7, {
+        scale: 1,
+        ease: eases.VinnieInOut,
+      });
   }
 
-  private animateElement(element: HTMLElement, animationOptions: gsap.TweenConfig): void {
-    TweenMax.to(element, 0.7, {
-      ...animationOptions,
-      ease: eases.VinnieInOut,
-    });
+  public isLink(): boolean {
+    return !!this.link?.hasAttribute('href');
   }
 
-  private onCardHover(
-    card: HTMLElement,
-    imageWrapper: HTMLElement | null,
-    content: HTMLElement | null,
-    isAnimationActive = false,
-  ): void {
-    imageWrapper && this.animateElement(imageWrapper, { scale: isAnimationActive ? 1.5 : 1 });
-    content && this.animateElement(content, { y: isAnimationActive ? 60 : 0 });
-    this.animateElement(card, { height: isAnimationActive ? '120%' : '100%' });
+  public hasDescription(): boolean {
+    return !!this.cardDescription?.textContent && this.cardDescription.textContent.length > 0;
+  }
+
+  private hasPublishDate(): boolean {
+    return !!this.cardPublishedDate?.textContent && this.cardPublishedDate.textContent.length > 0;
+  }
+
+  private hasHighlighted(): boolean {
+    return !!this.element.dataset.highlighted;
+  }
+
+  private addActionStyles(): void {
+    this.element.classList.add(O35ArticleCard.HAS_ACTION);
+  }
+
+  private hideActionIndicator(): void {
+    this.actionIndicator?.classList.add(StateClassNames.HIDDEN);
+  }
+
+  private addOnlyLinkStyles(): void {
+    this.element.classList.add(O35ArticleCard.HAS_ONLY_LINK);
   }
 }
