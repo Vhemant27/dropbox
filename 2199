@@ -24,21 +24,6 @@ export default class C100Cards extends AbstractTransitionComponent {
 
   private app: App | null = null;
 
-  private readonly cards = this.getComponents<O35ArticleCard>(O35ArticleCard.displayName).filter(
-    (component) => {
-      return !component.isLink() && component.hasDescription();
-    },
-  );
-
-  private payload: O09ModalCarouselContentProps = {
-    activeItemIndex: 0,
-    variant: 'fullBleedCarousel',
-    highlightHotspots: true,
-    items: this.getCardsData().filter(
-      ({ outerContent: { link, copy } }) => !link.href && copy && copy.length > 0,
-    ),
-  };
-
   constructor(el: HTMLElement) {
     super(el);
 
@@ -60,36 +45,36 @@ export default class C100Cards extends AbstractTransitionComponent {
   }
 
   private addEventListeners(): void {
-    this.cards.forEach((card) => {
-      const imageWrapper = card.getElement<HTMLElement>('.o-articleCard__image');
-      const content = card.getElement<HTMLElement>('.o-articleCard__content');
+    const cardContainers = document.querySelectorAll('.cmp-c100-cards .b-cards__list');
+    
+    cardContainers.forEach(cardContainer => {
+      if (cardContainer instanceof HTMLElement) {
+        const enhancedImageValue = cardContainer.dataset.enhancedImage;
+        const disableAnimationValue = cardContainer.dataset.disableAnimation;
+        const isImageEnhanced = enhancedImageValue === 'true';
+        const isAnimationActive = disableAnimationValue === 'false';
+        
+        const cards = this.getComponents<O35ArticleCard>(O35ArticleCard.displayName, cardContainer).filter(
+          (component) => !component.isLink() && component.hasDescription()
+        );
 
-      const cardContainers = document?.querySelectorAll('.cmp-c100-cards .b-cards__list');
-      let enhancedImageValue;
-      let disableAnimationValue;
+        cards.forEach((card) => {
+          const imageWrapper = card.getElement<HTMLElement>('.o-articleCard__image');
+          const content = card.getElement<HTMLElement>('.o-articleCard__content');
 
-      cardContainers.forEach(cardContainer => {
-          if (cardContainer && cardContainer instanceof HTMLElement) {
-            enhancedImageValue = cardContainer?.dataset?.enhancedImage;
-            disableAnimationValue = cardContainer?.dataset?.disableAnimation;
-            console.log('hello');
-        }
-    });
-      this.addDisposableEventListener(card.element, 'click', () => this.openModal(card.element));
+          if (isImageEnhanced) {
+            imageWrapper?.classList.add('o-articleCard__image--enhanced');
+          }
 
-      let isImageEnhanced = enhancedImageValue === 'true';
-      let isAnimationActive = disableAnimationValue === 'false';
-      if(isImageEnhanced){
-        console.log('inside if',imageWrapper);
-        imageWrapper?.classList.add('o-articleCard__image--enhanced');
-        }
-      this.addDisposableEventListener(card.element, 'mouseenter', () =>
-        this.onCardHover(card.element, imageWrapper, content, isAnimationActive),
-      );
-
-      this.addDisposableEventListener(card.element, 'mouseleave', () => {
-        this.onCardHover(card.element, imageWrapper, content);
-      });
+          this.addDisposableEventListener(card.element, 'click', () => this.openModal(card.element));
+          this.addDisposableEventListener(card.element, 'mouseenter', () =>
+            this.onCardHover(card.element, imageWrapper, content, isAnimationActive)
+          );
+          this.addDisposableEventListener(card.element, 'mouseleave', () => {
+            this.onCardHover(card.element, imageWrapper, content);
+          });
+        });
+      }
     });
   }
 
