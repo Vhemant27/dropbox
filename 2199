@@ -24,10 +24,22 @@ export default class C100Cards extends AbstractTransitionComponent {
 
   private app: App | null = null;
 
+  private payload: O09ModalCarouselContentProps;
+
   constructor(el: HTMLElement) {
     super(el);
 
     this.transitionController = new C100CardsTransitionController(this);
+
+    this.payload = {
+      activeItemIndex: 0,
+      variant: 'fullBleedCarousel',
+      highlightHotspots: true,
+      items: this.getCardsData().filter(
+        ({ outerContent: { link, copy } }) => !link.href && copy && copy.length > 0
+      ),
+    };
+
     this.addEventListeners();
   }
 
@@ -46,14 +58,14 @@ export default class C100Cards extends AbstractTransitionComponent {
 
   private addEventListeners(): void {
     const cardContainers = document.querySelectorAll('.cmp-c100-cards .b-cards__list');
-    
+
     cardContainers.forEach(cardContainer => {
       if (cardContainer instanceof HTMLElement) {
         const enhancedImageValue = cardContainer.dataset.enhancedImage;
         const disableAnimationValue = cardContainer.dataset.disableAnimation;
         const isImageEnhanced = enhancedImageValue === 'true';
         const isAnimationActive = disableAnimationValue === 'false';
-        
+
         const cards = this.getComponents<O35ArticleCard>(O35ArticleCard.displayName, cardContainer).filter(
           (component) => !component.isLink() && component.hasDescription()
         );
