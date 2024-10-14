@@ -1,154 +1,571 @@
-import AbstractComponent from 'app/component/AbstractComponent';
-import { TweenMax } from 'gsap';
+import AbstractTransitionComponent from 'app/component/AbstractTransitionComponent';
+import O107MapModalCarouselContentTransitionController from './O107MapModalCarouselContentTransitionController';
+import Swiper, { Navigation, Pagination } from 'swiper';
 import { StateClassNames } from 'app/data/enum/StateClassNames';
-import { navigateTo } from 'muban-page-transition-controller';
-import eases from '../../../animation/eases';
-import { getAppComponent } from '../../../util/getElementComponent';
-import { O35ArticleCardEvent } from './O35ArticleCard.utils';
+import deviceStateTracker from '../../../util/deviceStateTracker';
+import IDeviceStateData from 'seng-device-state-tracker/lib/IDeviceStateData';
+import mq from '../../../data/shared-variable/media-queries.json';
+import { DeviceStateEvent } from 'seng-device-state-tracker';
+import { SliderOptions } from './O107MapModalCarouselContent.types';
+import { C61HotspotMapItem } from 'app/component/block/c61-hotspot-map/C61HotspotMap.types';
+import O64HotspotMap from '../o64-hotspot-map/O64HotspotMap.lazy';
+import { getAppComponent } from 'app/util/getElementComponent';
+import { getComponentForElement } from 'muban-core';
+import { O107MapModalCarouselContentProps } from './O107MapModalCarouselContent.types';
+import A02Icon, { svgContext } from 'app/component/atom/a02-icon/A02Icon';
+import debounce from 'lodash-es/debounce';
+import O67ModalListViewer from 'app/component/organism/o67-modal-list-viewer/O67ModalListViewer.lazy';
+import C61HotspotMap from 'app/component/block/c61-hotspot-map/C61HotspotMap.lazy';
+import { TimelineLite } from 'gsap';
+import '../../../vendor/gsap/DrawSVGPlugin';
+import M24Tooltip from '../../molecule/m24-tooltip/M24Tooltip';
+import M26HotspotButton from 'app/component/molecule/m26-hotspot-button/M26HotspotButton';
+import { isRtl } from '../../../util/rtlUtils';
+import App from 'app/component/layout/app/App';
+import { MODAL } from 'app/util/overlayActionTypes';
 
-import './o35-article-card.scss';
+import './o107-map-modal-carousel-content.scss';
+import O106MapModal from '../o106-map-modal/O106MapModal.lazyOverlay';
+import S10MapOverlay from 'app/component/block/s10-map-overlay/S10MapOverlay.lazyOverlay';
+import O104MapContainer from '../o104-map-container/O104MapContainer.lazy';
 
-export default class O35ArticleCard extends AbstractComponent {
-  public static readonly displayName: string = 'o35-article-card';
-  public static readonly HAS_ACTION = '-hasAction';
-  public static readonly HAS_ONLY_LINK = '-hasOnlyLink';
+type HotspotInMap = HTMLElement;
+type HotspotInPath = HTMLElement | undefined;
 
-  private readonly articleCardImageWrapper = this.getElement('[data-card-image]');
-  private readonly articleCardParentDataset =
-    this.articleCardImageWrapper?.parentElement?.parentElement?.parentElement?.parentElement
-      ?.parentElement?.dataset;
-  private readonly cardImage = this.element.getElementsByTagName('img')[0];
-  private readonly cardPublishedDate =
-    this.getElement<HTMLParagraphElement>('[data-published-date]');
-  private readonly cardTitle = this.getElement('[data-card-heading]');
-  private readonly cardDescription = this.getElement<HTMLParagraphElement>('[data-card-copy]');
-  private readonly link = this.getElement<HTMLAnchorElement>('[data-component="m06-link"]');
-  private readonly actionIndicator = this.getElement<HTMLDivElement>('[data-action-indicator]');
+const isHotspotInMap = (hotspot: HotspotInPath): hotspot is HotspotInMap => !!hotspot;
+export default class O107MapModalCarouselContent extends AbstractTransitionComponent {
+  public static readonly displayName: string = 'o107-map-modal-carousel-content';
+
+  public readonly transitionController: O107MapModalCarouselContentTransitionController;
+
+  private readonly O104MapContainer =
+    document &&
+    document.querySelector<HTMLElement>(`[data-component="${O104MapContainer.displayName}"]`);
+
+  private readonly o64HotspotToolTip =
+    this.O104MapContainer &&
+    this.O104MapContainer.querySelector<HTMLElement>('[data-tooltip-wrapper]');
+
+  private readonly slider = this.getElement('[data-slider]');
+  private readonly pagination = this.getElement('[data-slider-pagination]');
+  private readonly sliderItems = this.getElements('[data-slider-item]');
+  private readonly sliderItem = this.sliderItems[0];
+  private readonly previousButton = this.getElement('[data-previous-button]');
+  private readonly nextButton = this.getElement('[data-next-button]');
+  private readonly hotspots = document && document.querySelectorAll<HTMLElement>('[data-hotspot]');
+  private readonly hotspotMap =
+    document &&
+    document.querySelector<HTMLElement>(`[data-component="${O104MapContainer.displayName}"]`);
+  private readonly oModal =
+    document &&
+    document.querySelector<HTMLElement>(`[data-component="${O106MapModal.displayName}"]`);
+  private readonly hotspotMapContainer =
+    this.hotspotMap && this.hotspotMap.querySelector<HTMLElement>('[data-hotspot-container]');
+  private readonly oModalCloseButton =
+    this.oModal && this.oModal.querySelector<HTMLElement>('[data-close-button]');
+  private readonly oModalControls =
+    this.oModal && this.oModal.querySelector<HTMLElement>('[data-controls]');
+  private readonly oModalPanel =
+    this.oModal && this.oModal.querySelector<HTMLElement>('[data-panel]');
+  private readonly oModalMask =
+    this.oModal && this.oModal.querySelector<HTMLElement>('[data-mask]');
+  private readonly props: O107MapModalCarouselContentProps =
+    this.element.dataset.props && JSON.parse(this.element.dataset.props);
+  private svgCanvas: SVGSVGElement | null = null;
+  private modal: O106MapModal | null = null;
+  private mask: HTMLElement | null = null;
+  private localMask: HTMLElement | null = null;
+  private itinerariesViewer: HTMLElement | null = null;
+  private C61HotspotMapNode: HTMLElement | null = null;
+  private readonly NUMERIC_REGEXP = /[-]{0,1}[\d]*[.]{0,1}[\d]+/g;
+  private enableItineraryHighlighting: boolean = true;
+  private overlay: HTMLElement | null = null;
+  private swiperSlider: Swiper | undefined = undefined;
+  private currentDeviceState: IDeviceStateData['state'];
+  private highlightItineraries: null | HTMLElement = this.getElement('[data-highlight-itinerary]');
+  private highlightHotspots: null | HTMLElement = this.getElement('[data-highlight-hotspots]');
+  private app: App | null = null;
 
   constructor(el: HTMLElement) {
     super(el);
+    this.initSlider();
 
-    if (!this.isLink() && !this.hasDescription()) {
-      this.hideActionIndicator();
-    }
+    this.transitionController = new O107MapModalCarouselContentTransitionController(this);
 
-    if (this.isLink()) {
-      this.addDisposableEventListener(this.element, 'click', this.onCardClick.bind(this));
-    }
+    this.currentDeviceState = deviceStateTracker.currentDeviceState.state;
 
-    if (
-      this.isLink() &&
-      !this.hasDescription() &&
-      !this.hasPublishDate() &&
-      !this.hasHighlighted()
-    ) {
-      this.addOnlyLinkStyles();
-    }
+    this.onDeviceStateChange(deviceStateTracker.currentDeviceState);
 
-    this.addEventListeners();
+    this.addDisposableEventListener<DeviceStateEvent>(
+      deviceStateTracker,
+      DeviceStateEvent.STATE_UPDATE,
+      (event) => this.onDeviceStateChange(event.data),
+    );
   }
 
-  private addEventListeners(): void {
-    const cardContainers = document.querySelectorAll('.cmp-c100-cards .b-cards__list');
+  private applyCloseButtonStyleToModal() {
+    const mapVariant = this.props && this.props?.mapVariant;
 
-    cardContainers.forEach(cardContainer => {
-      if (cardContainer instanceof HTMLElement && cardContainer.contains(this.element)) {
-        const disableAnimationValue = cardContainer.dataset.disableAnimation;
-        const isAnimationActive = disableAnimationValue === 'false';
+    this.oModalPanel?.classList.add('transparent-panel');
+    this.oModalMask?.classList.add('transparent-mask');
+    if (this.pagination) {
+      this.pagination.classList.add('carouselContentTransparent');
+    }
+    // }
+  }
 
-        if (isAnimationActive) {
-          this.articleCardImageWrapper &&
-            this.addDisposableEventListener(
-              this.articleCardImageWrapper,
-              'mouseenter',
-              this.onMouseEnter.bind(this),
+  public async adopted(): Promise<void> {
+    this.app = await getAppComponent();
+    this.initSlider();
+
+    const modal = this.app.getElement(`[data-component="${O106MapModal.displayName}"]`);
+    this.overlay = this.app.getElement(`[data-component='${S10MapOverlay.displayName}']`);
+
+    if (modal) {
+      this.modal = getComponentForElement<O106MapModal>(modal);
+    }
+    const itinerariesViewer = this.app.getElement(
+      `[data-component="${O67ModalListViewer.displayName}"]`,
+    );
+    if (itinerariesViewer) {
+      this.itinerariesViewer = itinerariesViewer;
+    }
+    const C61HotspotMapNode = this.app.getElement(
+      `[data-component="${C61HotspotMap.displayName}"]`,
+    );
+    if (C61HotspotMapNode) {
+      this.C61HotspotMapNode = C61HotspotMapNode;
+    }
+
+    this.initSlider({
+      highlightHotspots: Boolean(this.highlightHotspots),
+      hightlightItinerary: Boolean(this.highlightItineraries),
+    });
+
+    // reassign listeners to 'previous modal buttons' since
+    // swiper instance creates dupliacate slides for which
+    // the previous modal buttons would not have an assigned listener
+    this.modal?.assignPreviousModalButtons();
+  }
+
+  private dispatchSlideChangeAction = async (currentIndex: number) => {
+    const overlay = await this.app?.mapOverlay;
+    await overlay?.dispatchAction({ type: MODAL.SLIDE_CHANGE }, { currentIndex });
+  };
+
+  public async initSlider(sliderOptions?: SliderOptions): Promise<void> {
+    this.destroySlider();
+    this.applyCloseButtonStyleToModal();
+    const activeItemIndex = this.props && this.props.activeItemIndex;
+    // const animationType = this.props && this.props?.mapVariant;
+    const icon = this.props && this.props?.icon;
+
+    if (this.slider) {
+      Swiper.use([Navigation, Pagination]);
+      this.swiperSlider = new Swiper(this.slider, {
+        direction: 'horizontal',
+        loop: true,
+        slidesPerView: 1,
+        spaceBetween: 40,
+        navigation: {
+          nextEl: this.nextButton,
+          prevEl: this.previousButton,
+        },
+        on: {
+          slideChange: () => {
+            /*
+              Workaround fix for swiper loop issue https://github.com/nolimits4web/swiper/issues/2629
+            */
+            const headingIcons = this.getElements<HTMLElement>(
+              '.swiper-slide-duplicate .o-map-modalCarouselContent__heading .a-icon',
             );
-          this.articleCardImageWrapper &&
-            this.addDisposableEventListener(
-              this.articleCardImageWrapper,
-              'mouseleave',
-              this.onMouseLeave.bind(this),
-            );
+
+            headingIcons.forEach(async (iconElement) => {
+              if (iconElement.dataset?.icon) {
+                iconElement.innerHTML = await svgContext(`./${iconElement.dataset.icon}.svg`);
+              }
+            });
+          },
+          slideChangeTransitionStart: (swiper) => {
+            const tooltipWrappers = this.getElements(`[data-tooltip-wrapper]`);
+
+            const currentTooltip = this.getElement('[data-tooltip-wrapper]');
+            if (tooltipWrappers[swiper.realIndex]) {
+              tooltipWrappers[swiper.realIndex].classList.add('transparentTooltipWrapperNew');
+            }
+            if (currentTooltip) {
+              currentTooltip.classList.add(StateClassNames.ACTIVE);
+              currentTooltip?.classList.add(StateClassNames.OPEN);
+            }
+
+            this.dispatchSlideChangeAction(swiper.realIndex);
+          },
+        },
+        pagination: {
+          bulletClass: 'a-pageIndicators__item',
+          bulletElement: 'span',
+          bulletActiveClass: StateClassNames.ACTIVE,
+          currentClass: StateClassNames.ACTIVE,
+          el: this.pagination,
+          type: 'bullets',
+        },
+        breakpoints: {
+          768: {
+            spaceBetween: this.sliderItem.offsetWidth,
+          },
+        },
+        noSwipingClass: 'o-map-modalCarouselContent__previousModalButton',
+        initialSlide: activeItemIndex,
+      });
+
+      this.addSlideChangeListener(sliderOptions);
+
+      if (sliderOptions?.hightlightItinerary && this.enableItineraryHighlighting) {
+        this.addDisposableEventListener(
+          window,
+          'resize',
+          debounce(() => this.highlightItinerary(), 500, { trailing: true }),
+        );
+      }
+
+      sliderOptions?.highlightHotspots && this.highlightHotspot();
+      sliderOptions?.hightlightItinerary && this.highlightItinerary();
+    }
+    return Promise.resolve();
+  }
+
+  private drawSvgCanvas() {
+    if (!this.hotspotMapContainer) {
+      throw new Error('No map container found.');
+    }
+
+    const svgCanvas = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    this.hotspotMapContainer.prepend(svgCanvas);
+    const mapHeight = this.hotspotMapContainer.clientHeight;
+    const mapWidth = this.hotspotMapContainer.clientWidth;
+    svgCanvas.setAttribute('height', `${mapHeight}`);
+    svgCanvas.setAttribute('width', `${mapWidth}`);
+    svgCanvas.classList.add('o-hotspotMap__svgCanvas');
+
+    return svgCanvas;
+  }
+
+  private addSlideChangeListener(sliderOptions?: SliderOptions) {
+    if (sliderOptions?.highlightHotspots) {
+      this.swiperSlider && this.swiperSlider.on('slideChange', () => this.highlightHotspot());
+    }
+    if (sliderOptions?.hightlightItinerary) {
+      this.swiperSlider && this.swiperSlider.on('slideChange', () => this.highlightItinerary());
+    }
+  }
+
+  private highlightHotspot() {
+    const isHotpotIndex = !!this.sliderItems[0].dataset.hotspotIndex;
+    const hotspotIndex = isHotpotIndex
+      ? Number(this.sliderItems[this.swiperSlider?.realIndex ?? 0].dataset.hotspotIndex)
+      : this.swiperSlider?.realIndex ?? 0;
+    this.hotspots &&
+      this.hotspots.forEach((element, index) => {
+        const currentTooltip = isHotpotIndex
+          ? this.getElement('[data-tooltip-wrapper]', element)
+          : this.getElement(`[data-component=${M24Tooltip.displayName}`, element);
+        const current = this.getElement('[data-tooltip-wrapper]');
+
+        if (this.swiperSlider) {
+          if (index !== hotspotIndex) {
+            element.classList.remove(StateClassNames.ACTIVE);
+            currentTooltip?.classList.remove(StateClassNames.OPEN);
+          } else {
+            const tooltiphozIcon = element.querySelector(
+              '.m-tooltipTransparent__icon-hoz',
+            ) as HTMLElement;
+            tooltiphozIcon?.classList?.add(StateClassNames.OPEN);
+            const tooltipVerIcon = element.querySelector(
+              '.m-tooltipTransparent__icon',
+            ) as HTMLElement;
+            tooltipVerIcon?.classList?.remove(StateClassNames.OPEN);
+            const tooltipText = element.querySelector(
+              '.m-tooltipTransparent__textContainer',
+            ) as HTMLElement;
+            tooltipText?.classList?.remove(StateClassNames.OPEN);
+
+            element.classList.add(StateClassNames.ACTIVE);
+            currentTooltip?.classList.add(StateClassNames.OPEN);
+          }
         }
+      });
+  }
+
+  private async highlightItinerary() {
+    if (!this.enableItineraryHighlighting) {
+      return;
+    }
+    if (
+      !this.props ||
+      !this.hotspots ||
+      !this.swiperSlider ||
+      !this.hotspotMap ||
+      !this.hotspotMapContainer
+    ) {
+      throw new Error('Could not get one the params needed to highlight itinerary.');
+    }
+
+    const activeIndex = this.swiperSlider.realIndex;
+
+    const pathToDraw: number[] | undefined =
+      this.props && this.props.items[activeIndex].content?.path;
+
+    if (!pathToDraw) {
+      this.revertItineraryStyling();
+      return;
+    }
+
+    const hotspotsInPath: HotspotInPath[] = pathToDraw.map(
+      (hotspotIndex: number) => this.hotspots[hotspotIndex - 1],
+    );
+
+    const mapHotspotsInPath = hotspotsInPath.filter(isHotspotInMap);
+
+    if (!mapHotspotsInPath.length) {
+      this.revertItineraryStyling();
+      return;
+    }
+
+    if (!this.svgCanvas) {
+      this.svgCanvas = this.drawSvgCanvas();
+    }
+    while (this.svgCanvas.firstChild) {
+      this.svgCanvas.removeChild(this.svgCanvas.firstChild);
+    }
+    this.restoreHotspotStyling();
+
+    const offsetsToConnect: Array<C61HotspotMapItem['offset']> = pathToDraw
+      .map(
+        (hotspotIndex: number) =>
+          this.hotspots[hotspotIndex - 1] &&
+          this.hotspots[hotspotIndex - 1].dataset.item &&
+          JSON.parse(this.hotspots[hotspotIndex - 1].dataset.item!).offset,
+      )
+      .filter((offset) => !!offset);
+
+    hotspotsInPath.forEach((hotspot, index) => {
+      if (!hotspot) {
+        return;
+      }
+      hotspot.classList.add('-isPartOfItinerary');
+      const svgCross = hotspot.querySelector<HTMLElement>(
+        `[data-component='${A02Icon.displayName}']`,
+      );
+      if (svgCross) {
+        svgCross.style.display = 'none';
+      }
+      const button = hotspot.querySelector<HTMLElement>(
+        `[data-component='${M26HotspotButton.displayName}']`,
+      );
+      const stopIndex = document.createElement('span');
+      stopIndex.classList.add('m-hotspotButton__stopIndex');
+      stopIndex.innerText = (index + 1).toString();
+      button?.appendChild(stopIndex);
+    });
+
+    const pathLines = this.createSvgPaths(offsetsToConnect);
+
+    this.animatePath(mapHotspotsInPath, pathLines);
+
+    this.createLocalMask();
+
+    this.bringHiddenHotspotsIntoView(mapHotspotsInPath);
+  }
+
+  private createSvgPaths(offsetCoords: Array<{ x: number; y: number }>) {
+    if (!this.hotspotMapContainer || !this.svgCanvas) {
+      throw new Error(
+        'Could not get map container dimensions or svg canvas to calculate the itinerary paths',
+      );
+    }
+    const mapHeight = this.hotspotMapContainer.clientHeight;
+    const mapWidth = this.hotspotMapContainer.clientWidth;
+
+    const pathLines: SVGPathElement[] = [];
+
+    offsetCoords.forEach((offset, index) => {
+      if (index !== offsetCoords.length - 1) {
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        line.id = `line${index}`;
+        line.setAttribute('stroke', '#fff');
+        line.setAttribute('stroke-width', '2');
+        line.setAttribute('stroke-dasharray', '8');
+
+        const lineStartPosition = offset;
+        const lineEndPosition = offsetCoords[index + 1];
+
+        const x1 = (lineStartPosition.x / 100) * mapWidth;
+        const y1 = (lineStartPosition.y / 100) * mapHeight;
+        const x2 = (lineEndPosition.x / 100) * mapWidth;
+        const y2 = (lineEndPosition.y / 100) * mapHeight;
+
+        line.setAttribute('d', `M${x1} ${y1} ${x2} ${y2}`);
+        line.setAttribute(`mask`, `url(#mask${index})`);
+
+        const mask = document.createElementNS('http://www.w3.org/2000/svg', 'mask');
+        mask.id = `mask${index}`;
+        mask.setAttribute('maskUnits', 'userSpaceOnUse');
+
+        const maskedLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        maskedLine.setAttribute('d', `M${x1} ${y1} ${x2} ${y2}`);
+        maskedLine.setAttribute('stroke', '#fff');
+        maskedLine.setAttribute('stroke-width', '2');
+
+        mask.appendChild(maskedLine);
+        this.svgCanvas!.appendChild(line);
+        this.svgCanvas!.appendChild(mask);
+        pathLines.push(maskedLine);
+      }
+    });
+
+    return pathLines;
+  }
+
+  private bringHiddenHotspotsIntoView(hotspots: HTMLElement[]) {
+    const modalPanelWidth = this.modal?.getElement('[data-panel]')?.clientWidth;
+
+    if (!modalPanelWidth || !this.C61HotspotMapNode || !this.itinerariesViewer) {
+      throw new Error('Cannot get all parameters necessary to bring hidden hotspots into view');
+    }
+
+    const existingTransformXValue = this.C61HotspotMapNode.style.transform.match(
+      this.NUMERIC_REGEXP,
+    );
+
+    const availableWidth =
+      window.innerWidth -
+      modalPanelWidth +
+      (existingTransformXValue ? Number(existingTransformXValue[0]) : 0);
+
+    const boundingRects = hotspots.map((hotspot) => hotspot.getBoundingClientRect().right);
+
+    const hotspotFurthestFromLeftWindowBorder = Math.max(...boundingRects);
+
+    if (availableWidth < hotspotFurthestFromLeftWindowBorder) {
+      const amountToPixelsToMoveMap = hotspotFurthestFromLeftWindowBorder - availableWidth;
+      if (this.C61HotspotMapNode) {
+        this.C61HotspotMapNode.style.transform = `translateX(-${amountToPixelsToMoveMap + 20}px)`;
+      }
+
+      if (this.itinerariesViewer) {
+        this.itinerariesViewer.style.transform = `translateX(${amountToPixelsToMoveMap + 20}px)`;
+      }
+    } else {
+      this.C61HotspotMapNode.style.transform = 'translateX(0)';
+      this.itinerariesViewer.style.transform = `translateX(0)`;
+    }
+  }
+
+  private animatePath(hotspots: HTMLElement[], pathLines: SVGPathElement[]) {
+    const tl = new TimelineLite();
+
+    hotspots.forEach((hotspot, index) => {
+      const interval = 0.3;
+
+      tl.from(hotspot, interval, { opacity: 0 });
+      if (index !== hotspots.length - 1) {
+        tl.fromTo(
+          pathLines[index],
+          interval,
+          { drawSVG: '0%' },
+          { drawSVG: '100%', ease: 'Power2.easOut' },
+        );
       }
     });
   }
 
-  private async onCardClick(event: MouseEvent): Promise<void> {
-    const { pageTransitionController, isLinkInternal } = await getAppComponent();
-    const href = this.link && this.link.href;
-    const {
-      contentIndex = '',
-      contentCategoryTotal = '',
-      contentCategoryTitle = '',
-    } = this.element.dataset;
+  private createLocalMask() {
+    if (this.modal) {
+      this.mask = !this.mask
+        ? this.getElement('[data-mask]', this.overlay ?? undefined)
+        : this.mask;
 
-    const isLearnMoreClick =
-      event.target === this.link || this.link?.contains(event.target as Node);
+      if (this.mask) {
+        this.mask.style.display = 'none';
+      }
 
-    if (isLearnMoreClick) {
-      this.dispatcher.dispatchEvent(
-        new O35ArticleCardEvent(O35ArticleCardEvent.types.CLICK, {
-          content_index: contentIndex,
-          content_type:
-            contentCategoryTitle?.trim().toLowerCase() === 'newsroom' ? 'article' : 'page',
-          content_category: contentCategoryTitle,
-          content_category_total_count: contentCategoryTotal,
-          content_title: this.cardTitle?.textContent || '',
-          content_title_in_english: this.cardTitle?.dataset.titleInEnglish || '',
-          link_url: href || '',
-        }),
-      );
-
-      if (pageTransitionController && href && isLinkInternal(href)) {
-        await navigateTo(pageTransitionController, href);
-      } else if (href) {
-        window.location.href = href;
+      if (!this.localMask) {
+        this.localMask = document.createElement('div');
+        this.localMask.classList.add('o-hotspotMap__mask');
+        this.hotspotMapContainer && this.hotspotMapContainer.prepend(this.localMask);
       }
     }
   }
 
-  private onMouseEnter(): void {
-    this.cardImage &&
-      TweenMax.to(this.cardImage, 0.7, {
-        scale: 1.1,
-        ease: eases.VinnieInOut,
-      });
+  private destroySlider() {
+    if (this.swiperSlider) {
+      this.swiperSlider.destroy();
+    }
   }
 
-  private onMouseLeave(): void {
-    this.cardImage &&
-      TweenMax.to(this.cardImage, 0.7, {
-        scale: 1,
-        ease: eases.VinnieInOut,
-      });
+  private onDeviceStateChange({ state }: IDeviceStateData): void {
+    if (
+      (state < mq.deviceState.MEDIUM && this.currentDeviceState >= mq.deviceState.MEDIUM) ||
+      (state >= mq.deviceState.MEDIUM && this.currentDeviceState < mq.deviceState.MEDIUM)
+    ) {
+      this.initSlider();
+    }
+    if (state < mq.deviceState.XLARGE) {
+      this.enableItineraryHighlighting && this.revertItineraryStyling();
+      this.enableItineraryHighlighting = false;
+    } else {
+      this.enableItineraryHighlighting = true;
+    }
+
+    this.currentDeviceState = state;
   }
 
-  public isLink(): boolean {
-    return !!this.link?.hasAttribute('href');
+  private restoreHotspotStyling() {
+    this.hotspots.forEach((hotspot) => {
+      const svgCross = hotspot.querySelector<HTMLElement>(
+        `[data-component='${A02Icon.displayName}']`,
+      );
+      if (svgCross) {
+        svgCross.style.display = 'block';
+      }
+      hotspot.classList.remove('-isPartOfItinerary');
+      const stopIndex = hotspot.querySelector<HTMLElement>('.m-hotspotButton__stopIndex');
+
+      if (stopIndex && stopIndex.parentNode) {
+        stopIndex.parentNode.removeChild(stopIndex);
+      }
+    });
   }
 
-  public hasDescription(): boolean {
-    return !!this.cardDescription?.textContent && this.cardDescription.textContent.length > 0;
+  private revertItineraryStyling() {
+    this.restoreHotspotStyling();
+    if (this.mask) {
+      this.mask.style.display = 'block';
+    }
+
+    if (this.C61HotspotMapNode) {
+      this.C61HotspotMapNode.style.removeProperty('transform');
+    }
+
+    if (
+      this.itinerariesViewer &&
+      deviceStateTracker.currentDeviceState.state > mq.deviceState.SMALL
+    ) {
+      this.itinerariesViewer.style.removeProperty('transform');
+    }
+
+    if (this.hotspotMapContainer) {
+      this.localMask && this.hotspotMapContainer.removeChild(this.localMask);
+      this.localMask = null;
+      this.svgCanvas && this.hotspotMapContainer.removeChild(this.svgCanvas);
+      this.svgCanvas = null;
+    }
   }
 
-  private hasPublishDate(): boolean {
-    return !!this.cardPublishedDate?.textContent && this.cardPublishedDate.textContent.length > 0;
-  }
-
-  private hasHighlighted(): boolean {
-    return !!this.element.dataset.highlighted;
-  }
-
-  private addActionStyles(): void {
-    this.element.classList.add(O35ArticleCard.HAS_ACTION);
-  }
-
-  private hideActionIndicator(): void {
-    this.actionIndicator?.classList.add(StateClassNames.HIDDEN);
-  }
-
-  private addOnlyLinkStyles(): void {
-    this.element.classList.add(O35ArticleCard.HAS_ONLY_LINK);
+  public dispose() {
+    super.dispose();
+    this.disposables.dispose();
+    this.destroySlider();
+    this.enableItineraryHighlighting && this.revertItineraryStyling();
   }
 }
